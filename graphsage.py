@@ -525,7 +525,7 @@ class GraphSAGEAdapter:
                 feed_dict_val,
                 finished,
                 edges,
-            ) = self.minibatch_iter.incremental_embed_feed_dict_val_only(
+            ) = self.minibatch_iter.incremental_embed_feed_dict(
                 batch_size, iter_num
             )
             iter_num += 1
