@@ -6,7 +6,7 @@ import numpy as np
 np.random.seed(123)
 
 class EdgeMinibatchIterator(object):
-    
+
     """ This minibatch iterator iterates over batches of sampled edges or
     random pairs of co-occuring edges.
 
@@ -19,7 +19,7 @@ class EdgeMinibatchIterator(object):
     n2v_retrain -- signals that the iterator is being used to add new embeddings to a n2v model
     fixed_n2v -- signals that the iterator is being used to retrain n2v with only existing nodes as context
     """
-    def __init__(self, G, id2idx, 
+    def __init__(self, G, id2idx,
             placeholders, context_pairs=None, batch_size=100, max_degree=25,
             n2v_retrain=False, fixed_n2v=False,
             **kwargs):
@@ -31,6 +31,10 @@ class EdgeMinibatchIterator(object):
         self.batch_size = batch_size
         self.max_degree = max_degree
         self.batch_num = 0
+        self.val_nodes = [
+            node for node in G.nodes()
+            if G.node[node]["test"] or G.node[node]["val"]
+        ]
 
         self.nodes = np.random.permutation(G.nodes())
         self.adj, self.deg = self.construct_adj()
@@ -80,7 +84,7 @@ class EdgeMinibatchIterator(object):
         for nodeid in self.G.nodes():
             if self.G.node[nodeid]['test'] or self.G.node[nodeid]['val']:
                 continue
-            neighbors = np.array([self.id2idx[neighbor] 
+            neighbors = np.array([self.id2idx[neighbor]
                 for neighbor in self.G.neighbors(nodeid)
                 if (not self.G[nodeid][neighbor]['train_removed'])])
             deg[self.id2idx[nodeid]] = len(neighbors)
@@ -96,7 +100,7 @@ class EdgeMinibatchIterator(object):
     def construct_test_adj(self):
         adj = len(self.id2idx)*np.ones((len(self.id2idx)+1, self.max_degree))
         for nodeid in self.G.nodes():
-            neighbors = np.array([self.id2idx[neighbor] 
+            neighbors = np.array([self.id2idx[neighbor]
                 for neighbor in self.G.neighbors(nodeid)])
             if len(neighbors) == 0:
                 continue
@@ -145,14 +149,21 @@ class EdgeMinibatchIterator(object):
 
     def incremental_val_feed_dict(self, size, iter_num):
         edge_list = self.val_edges
-        val_edges = edge_list[iter_num*size:min((iter_num+1)*size, 
+        val_edges = edge_list[iter_num*size:min((iter_num+1)*size,
             len(edge_list))]
         return self.batch_feed_dict(val_edges), (iter_num+1)*size >= len(self.val_edges), val_edges
 
     def incremental_embed_feed_dict(self, size, iter_num):
         node_list = self.nodes
-        val_nodes = node_list[iter_num*size:min((iter_num+1)*size, 
+        val_nodes = node_list[iter_num*size:min((iter_num+1)*size,
             len(node_list))]
+        val_edges = [(n,n) for n in val_nodes]
+        return self.batch_feed_dict(val_edges), (iter_num+1)*size >= len(node_list), val_edges
+
+    def incremental_embed_feed_dict_val_only(self, size, iter_num):
+        node_list = self.val_nodes
+        val_nodes = node_list[iter_num*size:min((iter_num+1)*size,
+                                                len(node_list))]
         val_edges = [(n,n) for n in val_nodes]
         return self.batch_feed_dict(val_edges), (iter_num+1)*size >= len(node_list), val_edges
 
@@ -160,7 +171,7 @@ class EdgeMinibatchIterator(object):
         train_edges = []
         val_edges = []
         for n1, n2 in self.G.edges():
-            if (self.G.node[n1]['val'] or self.G.node[n1]['test'] 
+            if (self.G.node[n1]['val'] or self.G.node[n1]['test']
                     or self.G.node[n2]['val'] or self.G.node[n2]['test']):
                 val_edges.append((n1,n2))
             else:
@@ -176,8 +187,8 @@ class EdgeMinibatchIterator(object):
         self.batch_num = 0
 
 class NodeMinibatchIterator(object):
-    
-    """ 
+
+    """
     This minibatch iterator iterates over nodes for supervised learning.
 
     G -- networkx graph
@@ -188,8 +199,8 @@ class NodeMinibatchIterator(object):
     batch_size -- size of the minibatches
     max_degree -- maximum size of the downsampled adjacency lists
     """
-    def __init__(self, G, id2idx, 
-            placeholders, label_map, num_classes, 
+    def __init__(self, G, id2idx,
+            placeholders, label_map, num_classes,
             batch_size=100, max_degree=25,
             **kwargs):
 
@@ -231,7 +242,7 @@ class NodeMinibatchIterator(object):
         for nodeid in self.G.nodes():
             if self.G.node[nodeid]['test'] or self.G.node[nodeid]['val']:
                 continue
-            neighbors = np.array([self.id2idx[neighbor] 
+            neighbors = np.array([self.id2idx[neighbor]
                 for neighbor in self.G.neighbors(nodeid)
                 if (not self.G[nodeid][neighbor]['train_removed'])])
             deg[self.id2idx[nodeid]] = len(neighbors)
@@ -247,7 +258,7 @@ class NodeMinibatchIterator(object):
     def construct_test_adj(self):
         adj = len(self.id2idx)*np.ones((len(self.id2idx)+1, self.max_degree))
         for nodeid in self.G.nodes():
-            neighbors = np.array([self.id2idx[neighbor] 
+            neighbors = np.array([self.id2idx[neighbor]
                 for neighbor in self.G.neighbors(nodeid)])
             if len(neighbors) == 0:
                 continue
@@ -264,7 +275,7 @@ class NodeMinibatchIterator(object):
     def batch_feed_dict(self, batch_nodes, val=False):
         batch1id = batch_nodes
         batch1 = [self.id2idx[n] for n in batch1id]
-              
+
         labels = np.vstack([self._make_label_vec(node) for node in batch1id])
         feed_dict = dict()
         feed_dict.update({self.placeholders['batch_size'] : len(batch1)})
@@ -289,7 +300,7 @@ class NodeMinibatchIterator(object):
             val_nodes = self.test_nodes
         else:
             val_nodes = self.val_nodes
-        val_node_subset = val_nodes[iter_num*size:min((iter_num+1)*size, 
+        val_node_subset = val_nodes[iter_num*size:min((iter_num+1)*size,
             len(val_nodes))]
 
         # add a dummy neighbor
@@ -308,7 +319,7 @@ class NodeMinibatchIterator(object):
 
     def incremental_embed_feed_dict(self, size, iter_num):
         node_list = self.nodes
-        val_nodes = node_list[iter_num*size:min((iter_num+1)*size, 
+        val_nodes = node_list[iter_num*size:min((iter_num+1)*size,
             len(node_list))]
         return self.batch_feed_dict(val_nodes), (iter_num+1)*size >= len(node_list), val_nodes
 
